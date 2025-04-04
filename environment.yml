@@ -1,0 +1,15 @@
+name: THPSys
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.8
+  - flask
+  - numpy
+  - pandas
+  - scikit-learn
+  - plotly
+  - paho-mqtt
+  - pip
+  - pip:
+    - python-dotenv

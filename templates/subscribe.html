@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MQTT Subscriber</title>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <style>
+    body {
+  font-family: Arial, sans-serif;
+  margin: 0;  /* 改为0，让顶部栏贴边 */
+  padding: 0;  /* 改为0，让顶部栏贴边 */
+  background-color: #f5f5f5;
+}
+    .container {
+      display: flex;
+      gap: 20px;
+      max-width: 1400px;
+      margin: 0 auto;
+      height: calc(100vh - 40px);
+    }
+    .left-panel {
+      flex: 0 0 500px;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    .right-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    .control-panel, .message-panel, .log-panel, .chart-panel {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    .control-panel {
+      flex: 0 0 auto;
+    }
+    .message-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 0;
+      overflow: hidden;
+    }
+    .log-panel {
+      flex: 0 0 200px;
+      display: flex;
+      flex-direction: column;
+    }
+    .chart-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 0;
+      overflow: hidden;
+    }
+    .topic-select {
+      width: 100%;
+      padding: 8px;
+      margin: 10px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: white;
+    }
+    .log-container, .message-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: #fff;
+      min-height: 0;
+    }
+    .logs {
+      font-family: monospace;
+      white-space: pre-wrap;
+      margin: 0;
+    }
+    .messages {
+      font-family: monospace;
+      margin: 0;
+    }
+    button {
+      padding: 8px 16px;
+      margin: 5px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      color: white;
+      transition: all 0.3s ease;
+    }
+    button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+    .error-message {
+      color: #dc3545;
+      margin: 5px 0;
+      font-size: 0.9em;
+    }
+    
+    #connectBtn {
+      background-color: #4CAF50;
+    }
+    #connectBtn:hover:not(:disabled) {
+      background-color: #45a049;
+    }
+    
+    #disconnectBtn {
+      background-color: #ffc107;
+      color: #000;
+    }
+    #disconnectBtn:hover:not(:disabled) {
+      background-color: #e0a800;
+    }
+    
+    #subscribeBtn {
+      background-color: #007bff;
+    }
+    #subscribeBtn:hover:not(:disabled) {
+      background-color: #0056b3;
+    }
+    
+    #clearBtn {
+      background-color: #6c757d;
+    }
+    #clearBtn:hover:not(:disabled) {
+      background-color: #5a6268;
+    }
+    
+    .message-item {
+      height: 40px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      margin: 0;
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+      line-height: 1.5;
+    }
+    .message-timestamp {
+      margin: 0;
+      color: #666;
+      font-size: 1em;
+      line-height: 1.2;
+    }
+    .message-value {
+      margin: 0;
+      font-weight: bold;
+      font-size: 1.1em;
+      line-height: 1.2;
+    }
+    
+    #chart {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div style="
+    background-color: #2c3e50;
+    color: white;
+    padding: 15px;
+    text-align: center;
+    font-size: 24px;
+    font-weight: bold;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  ">
+    MQTT 接收端
+  </div>
+  
+  <div class="container">
+    <div class="left-panel">
+      <div class="control-panel">
+        <h2>控制面板</h2>
+        <button id="connectBtn">连接服务器</button>
+        <button id="disconnectBtn" disabled>断开连接</button>
+        
+        <div class="topic-selection">
+          <select id="topicSelect" class="topic-select" disabled>
+            <option value="">请选择订阅主题</option>
+            <option value="temperature">温度</option>
+            <option value="humidity">湿度</option>
+            <option value="pressure">压力</option>
+          </select>
+          <div id="topicError" class="error-message"></div>
+        </div>
+        
+        <button id="subscribeBtn" disabled>订阅主题</button>
+        <button id="clearBtn">清除数据</button>
+      </div>
+
+      <div class="message-panel">
+        <h2>接收的消息</h2>
+        <div class="message-container">
+          <div id="messages" class="messages"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="right-panel">
+      <div class="log-panel">
+        <h2>订阅日志</h2>
+        <div class="log-container">
+          <pre class="logs"></pre>
+        </div>
+      </div>
+
+      <div class="chart-panel">
+        <h2>数据图表</h2>
+        <div id="chart"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let connected = false;
+    let subscribed = false;
+    let updateInterval = null;  // 用于存储更新定时器
+    
+    // 初始化图表
+    const layout = {
+      title: '实时数据图表',
+      xaxis: { 
+        title: '时间',
+        tickangle: -45
+      },
+      yaxis: { 
+        title: '数值'
+      },
+      margin: { t: 30 },  // 减小顶部边距
+      autosize: true,     // 启用自动大小调整
+      height: null,       // 高度自适应容器
+      width: null         // 宽度自适应容器
+    };
+
+    const config = {
+      responsive: true,    // 启用响应式
+      displayModeBar: false  // 隐藏模式栏
+    };
+
+    const chartData = {
+      x: [],
+      y: [],
+      type: 'scatter',
+      mode: 'markers',
+      name: '实际数据点',
+      marker: {
+        size: 8,
+        color: 'blue'
+      }
+    };
+
+    const originalLine = {
+      x: [],
+      y: [],
+      type: 'scatter',
+      mode: 'lines',
+      name: '原始曲线',
+      line: {
+        shape: 'linear',
+        color: 'rgba(0, 0, 255, 0.3)',
+        width: 1
+      }
+    };
+
+    const fittedData = {
+      x: [],
+      y: [],
+      type: 'scatter',
+      mode: 'lines',
+      name: '拟合曲线',
+      line: {
+        shape: 'spline',
+        color: 'red',
+        width: 2
+      }
+    };
+
+    Plotly.newPlot('chart', [chartData, originalLine, fittedData], layout, config);
+
+    // 在窗口大小改变时重新调整图表大小
+    window.addEventListener('resize', function() {
+      Plotly.Plots.resize('chart');
+    });
+
+    function updateLog(timestamp, message) {
+      $('.logs').append(`[${timestamp}] ${message}\n`);
+      $('.log-container').scrollTop($('.log-container')[0].scrollHeight);
+    }
+
+    function updateMessage(timestamp, value, raw_value) {
+      // 只更新消息列表，不更新图表
+      $('#messages').append(`
+        <div class="message-item">
+          <div class="message-timestamp">${timestamp}</div>
+          <div class="message-value">${value}</div>
+        </div>
+      `);
+      $('.message-container').scrollTop($('.message-container')[0].scrollHeight);
+    }
+
+    function updateButtonStates() {
+      $('#connectBtn').prop('disabled', connected);
+      $('#disconnectBtn').prop('disabled', !connected);
+      $('#topicSelect').prop('disabled', !connected || subscribed);
+      $('#subscribeBtn').prop('disabled', !connected || subscribed || !$('#topicSelect').val());
+    }
+
+    $('#connectBtn').click(function() {
+      $.ajax({
+        type: 'POST',
+        url: '/connect',
+        success: function(response) {
+          if (response.status === 'success' || response.status === 'already_connected') {
+            connected = true;
+            updateLog(response.timestamp, response.message);
+          } else {
+            updateLog(response.timestamp, '错误: ' + response.message);
+          }
+          updateButtonStates();
+        },
+        error: function(xhr, status, error) {
+          updateLog(new Date().toISOString(), '连接错误: ' + error);
+        }
+      });
+    });
+
+    $('#disconnectBtn').click(function() {
+      $.ajax({
+        type: 'POST',
+        url: '/disconnect',
+        success: function(response) {
+          if (response.status === 'success') {
+            connected = false;
+            subscribed = false;
+            if (updateInterval) {
+              clearInterval(updateInterval);
+              updateInterval = null;
+            }
+            $('#topicSelect').val('');
+            updateLog(response.timestamp, response.message);
+          } else {
+            updateLog(response.timestamp, '错误: ' + response.message);
+          }
+          updateButtonStates();
+        }
+      });
+    });
+
+    $('#topicSelect').change(function() {
+      updateButtonStates();
+      $('#topicError').text('');
+    });
+
+    $('#subscribeBtn').click(function() {
+      const topic = $('#topicSelect').val();
+      if (!topic) {
+        $('#topicError').text('请选择要订阅的主题');
+        return;
+      }
+
+      // 清除之前的数据和定时器
+      if (updateInterval) {
+        clearInterval(updateInterval);
+      }
+      $('#messages').empty();
+      chartData.x = [];
+      chartData.y = [];
+      originalLine.x = [];
+      originalLine.y = [];
+      fittedData.x = [];
+      fittedData.y = [];
+      
+      // 重置图表
+      Plotly.newPlot('chart', [chartData, originalLine, fittedData], layout, config);
+
+      $.ajax({
+        type: 'POST',
+        url: '/subscribe',
+        contentType: 'application/json',
+        data: JSON.stringify({ topic: topic }),
+        success: function(response) {
+          if (response.status === 'success') {
+            subscribed = true;
+            updateLog(response.timestamp, response.message);
+            // 开始新的更新循环
+            updateInterval = setInterval(updateChart, 1000);
+          } else {
+            updateLog(response.timestamp, '错误: ' + response.message);
+          }
+          updateButtonStates();
+        },
+        error: function(xhr, status, error) {
+          updateLog(new Date().toISOString(), '订阅错误: ' + error);
+        }
+      });
+    });
+
+    $('#clearBtn').click(function() {
+      // 清除所有数据
+      $('#messages').empty();
+      chartData.x = [];
+      chartData.y = [];
+      originalLine.x = [];
+      originalLine.y = [];
+      fittedData.x = [];
+      fittedData.y = [];
+      
+      // 清除服务器端消息队列
+      fetch('/clear_messages', {
+        method: 'POST'
+      });
+      
+      // 重置图表
+      Plotly.react('chart', [
+        {
+          x: [],
+          y: [],
+          type: 'scatter',
+          mode: 'markers',
+          name: '实际数据点',
+          marker: {
+            size: 8,
+            color: 'blue'
+          }
+        },
+        {
+          x: [],
+          y: [],
+          type: 'scatter',
+          mode: 'lines',
+          name: '原始曲线',
+          line: {
+            shape: 'linear',
+            color: 'rgba(0, 0, 255, 0.3)',
+            width: 1
+          }
+        },
+        {
+          x: [],
+          y: [],
+          type: 'scatter',
+          mode: 'lines',
+          name: '拟合曲线',
+          line: {
+            shape: 'spline',
+            color: 'red',
+            width: 2
+          }
+        }
+      ], layout);
+    });
+
+    function updateChart() {
+      if (!subscribed) {
+        console.log("Debug - Not subscribed, skipping update");
+        return;
+      }
+      
+      console.log("Debug - Updating chart...");
+      fetch('/messages')
+        .then(response => response.json())
+        .then(data => {
+          console.log("Debug - Received messages:", data);
+          if (data.messages && data.messages.length > 0) {
+            // 更新消息列表
+            $('#messages').empty(); // 清空现有消息
+            data.messages.forEach(function(msg) {
+              $('#messages').append(`
+                <div class="message-item">
+                  <div class="message-timestamp">${msg.timestamp}</div>
+                  <div class="message-value">${msg.value}</div>
+                </div>
+              `);
+            });
+            // 滚动到最新消息
+            $('.message-container').scrollTop($('.message-container')[0].scrollHeight);
+            
+            // 清除现有数据
+            chartData.x = [];
+            chartData.y = [];
+            
+            // 更新实际数据点
+            data.messages.forEach(function(msg) {
+              chartData.x.push(msg.timestamp);
+              chartData.y.push(msg.raw_value);
+            });
+            
+            // 更新原始数据曲线
+            originalLine.x = [...chartData.x];
+            originalLine.y = [...chartData.y];
+
+            // 获取拟合数据
+            fetch('/get_fitted_data')
+              .then(response => response.json())
+              .then(fitted => {
+                console.log("Debug - Received fitted data:", fitted);
+                
+                if (fitted && fitted.times && fitted.values) {
+                  console.log("Debug - Updating fitted data");
+                  console.log("Times:", fitted.times.length);
+                  console.log("Values:", fitted.values.length);
+                  
+                  // 分割历史拟合和未来预测
+                  const historicalTimes = fitted.times.slice(0, fitted.prediction_start);
+                  const historicalValues = fitted.values.slice(0, fitted.prediction_start);
+                  const futureTimes = fitted.times.slice(fitted.prediction_start);
+                  const futureValues = fitted.values.slice(fitted.prediction_start);
+                  
+                  const traces = [
+                    {
+                      x: chartData.x,
+                      y: chartData.y,
+                      type: 'scatter',
+                      mode: 'markers',
+                      name: '实际数据点',
+                      marker: {
+                        size: 8,
+                        color: 'blue'
+                      }
+                    },
+                    {
+                      x: originalLine.x,
+                      y: originalLine.y,
+                      type: 'scatter',
+                      mode: 'lines',
+                      name: '原始曲线',
+                      line: {
+                        shape: 'linear',
+                        color: 'rgba(0, 0, 255, 0.3)',
+                        width: 1
+                      }
+                    },
+                    {
+                      x: historicalTimes,
+                      y: historicalValues,
+                      type: 'scatter',
+                      mode: 'lines',
+                      name: '拟合曲线',
+                      line: {
+                        shape: 'spline',
+                        color: 'red',
+                        width: 2
+                      }
+                    },
+                    {
+                      x: futureTimes,
+                      y: futureValues,
+                      type: 'scatter',
+                      mode: 'lines',
+                      name: '预测曲线',
+                      line: {
+                        shape: 'spline',
+                        color: 'orange',
+                        width: 2,
+                        dash: 'dash'  // 使用虚线表示预测
+                      }
+                    }
+                  ];
+                  
+                  // 更新图表
+                  Plotly.react('chart', traces, layout);
+                }
+              })
+              .catch(error => console.error('Error getting fitted data:', error));
+          }
+        })
+        .catch(error => console.error('Error updating chart:', error));
+    }
+  </script>
+</body>
+
+</html>

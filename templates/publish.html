@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MQTT Publisher</title>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <style>
+    /* 在style标签内添加 */
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;  /* 改为0，让顶部栏贴边 */
+      padding: 0;  /* 改为0，让顶部栏贴边 */
+      background-color: #f5f5f5;
+    }
+
+    .container {
+      display: flex;
+      gap: 20px;
+      max-width: 1400px;
+      margin: 20px auto;  /* 添加上下边距 */
+      padding: 0 20px;    /* 添加左右内边距 */
+    }
+    .left-panel, .right-panel {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      flex: 1;
+    }
+    .control-panel {
+      margin-bottom: 20px;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    .topic-select {
+      width: 100%;
+      padding: 8px;
+      margin: 10px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: white;
+    }
+    .log-container {
+      height: 600px;
+      overflow-y: auto;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: #fff;
+    }
+    .logs {
+      font-family: monospace;
+      white-space: pre-wrap;
+      margin: 0;
+    }
+    button {
+      padding: 8px 16px;
+      margin: 5px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      color: white;
+      transition: all 0.3s ease;
+    }
+    button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+    .data-input {
+      height: 300px;
+      width: 97%;
+      padding: 10px;
+      margin: 10px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-family: monospace;
+      resize: vertical;
+    }
+    .format-example {
+      background-color: #f8f9fa;
+      padding: 10px;
+      border-radius: 4px;
+      margin: 10px 0;
+      font-family: monospace;
+      font-size: 0.9em;
+    }
+    .error-message {
+      color: #dc3545;
+      margin: 5px 0;
+      font-size: 0.9em;
+    }
+    
+    #connectBtn {
+      background-color: #4CAF50;
+    }
+    #connectBtn:hover:not(:disabled) {
+      background-color: #45a049;
+    }
+    
+    #disconnectBtn {
+      background-color: #ffc107;
+      color: #000;
+    }
+    #disconnectBtn:hover:not(:disabled) {
+      background-color: #e0a800;
+    }
+    
+    #publishBtn {
+      background-color: #007bff;
+    }
+    #publishBtn:hover:not(:disabled) {
+      background-color: #0056b3;
+    }
+    
+    .publish-info {
+      margin: 10px 0;
+      padding: 10px;
+      background-color: #e9ecef;
+      border-radius: 4px;
+      font-size: 0.9em;
+      color: #495057;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- 添加顶部栏 -->
+  <div style="
+    background-color: #2c3e50;
+    color: white;
+    padding: 15px;
+    text-align: center;
+    font-size: 24px;
+    font-weight: bold;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  ">
+    MQTT 发布端
+  </div>
+  
+  <div class="container">
+    <div class="left-panel">
+      <h2>控制面板</h2>
+      
+      <div class="control-panel">
+        <button id="connectBtn">连接服务器</button>
+        <button id="disconnectBtn" disabled>断开连接</button>
+        
+        <div class="topic-selection">
+          <select id="topicSelect" class="topic-select" disabled>
+            <option value="">请选择发布主题</option>
+            <option value="temperature">温度</option>
+            <option value="humidity">湿度</option>
+            <option value="pressure">压力</option>
+          </select>
+          <div id="topicError" class="error-message"></div>
+        </div>
+      </div>
+
+      <div class="publish-info">
+        请按以下JSON格式输入数据，包含时间戳和对应的值：
+      </div>
+
+      <div class="format-example">
+        数据格式示例：<br>
+        {<br>
+          "2014-02-13T00:00:00": "4",<br>
+          "2014-02-13T00:20:00": "4.0",<br>
+          "2014-02-13T00:50:00": "4.0",<br>
+          "2014-02-13T01:00:00": "4"<br>
+        }
+      </div>
+
+      <textarea id="dataInput" class="data-input" placeholder="在此输入数据..."></textarea>
+      <div id="inputError" class="error-message"></div>
+      
+      <button id="publishBtn" disabled>发布数据</button>
+    </div>
+
+    <div class="right-panel">
+      <h2>发布日志</h2>
+      <div class="log-container">
+        <pre class="logs"></pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let connected = false;
+    let publishing = false;
+    
+    function updateLog(timestamp, message) {
+      $('.logs').append(`[${timestamp}] ${message}\n`);
+      $('.log-container').scrollTop($('.log-container')[0].scrollHeight);
+    }
+
+    function updateButtonStates() {
+      $('#connectBtn').prop('disabled', connected);
+      $('#disconnectBtn').prop('disabled', !connected);
+      $('#topicSelect').prop('disabled', !connected);
+      $('#publishBtn').prop('disabled', !connected || publishing || !$('#topicSelect').val());
+    }
+
+    function validateBeforePublish() {
+      let isValid = true;
+      $('#topicError').text('');
+      $('#inputError').text('');
+
+      if (!$('#topicSelect').val()) {
+        $('#topicError').text('请先选择发布主题');
+        isValid = false;
+      }
+
+      const data = $('#dataInput').val().trim();
+      if (!data) {
+        $('#inputError').text('请输入要发布的数据');
+        isValid = false;
+      }
+
+      return isValid;
+    }
+
+    $('#connectBtn').click(function() {
+      $.ajax({
+        type: 'POST',
+        url: '/connect',
+        success: function(response) {
+          if (response.status === 'success' || response.status === 'already_connected') {
+            connected = true;
+            updateLog(response.timestamp, response.message);
+          } else {
+            updateLog(response.timestamp, '错误: ' + response.message);
+          }
+          updateButtonStates();
+        },
+        error: function(xhr, status, error) {
+          updateLog(new Date().toISOString(), '连接错误: ' + error);
+        }
+      });
+    });
+
+    $('#disconnectBtn').click(function() {
+      $.ajax({
+        type: 'POST',
+        url: '/disconnect',
+        success: function(response) {
+          if (response.status === 'success') {
+            connected = false;
+            publishing = false;
+            $('#topicSelect').val('');
+            updateLog(response.timestamp, response.message);
+          } else {
+            updateLog(response.timestamp, '错误: ' + response.message);
+          }
+          updateButtonStates();
+        }
+      });
+    });
+
+    $('#topicSelect').change(function() {
+      updateButtonStates();
+      $('#topicError').text('');
+    });
+
+    $('#publishBtn').click(function() {
+      if (!validateBeforePublish()) {
+        return;
+      }
+
+      publishing = true;
+      updateButtonStates();
+      
+      $.ajax({
+        type: 'POST',
+        url: '/publishCustom',
+        contentType: 'application/json',
+        data: JSON.stringify({ 
+          data: $('#dataInput').val().trim(),
+          topic: $('#topicSelect').val()
+        }),
+        success: function(response) {
+          updateLog(response.timestamp, response.message);
+          if (response.status === 'complete') {
+            publishing = false;
+            updateButtonStates();
+          }
+        },
+        error: function(xhr, status, error) {
+          publishing = false;
+          updateButtonStates();
+          updateLog(new Date().toISOString(), '发布错误: ' + error);
+        }
+      });
+    });
+  </script>
+</body>
+
+</html>
